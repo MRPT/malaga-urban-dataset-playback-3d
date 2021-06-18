@@ -15,6 +15,8 @@ Public release of the source code used to build the video previews of the [Mála
 }
 ```
 
+![video screenshot](https://img.youtube.com/vi/op-2ypPcJIc/0.jpg)
+
 # Usage
 
 ```bash
