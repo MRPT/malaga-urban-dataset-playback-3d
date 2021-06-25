@@ -26,21 +26,29 @@
    |                                                                           |
    +---------------------------------------------------------------------------+ */
 
-#include <mrpt/base.h>
+#include <mrpt/system/os.h>
 #include <mrpt/obs.h>
 #include <mrpt/maps.h>
 #include <mrpt/gui.h>
-#include <mrpt/synch.h>
 #include <mrpt/topography.h>
-
+#include <mrpt/system/filesystem.h>
+#include <mrpt/system/datetime.h>
+#include <mrpt/system/memory.h>
+#include <mrpt/img/TPixelCoord.h>
+#include <mrpt/opengl/CFBORender.h>
+#include <mrpt/opengl/COctreePointRenderer.h>
+#include <mrpt/io/CFileGZInputStream.h>
+#include <mrpt/opengl.h>
+#include <queue>
 using namespace mrpt;
 using namespace mrpt::math;
-using namespace mrpt::utils;
+using namespace mrpt::img;
 using namespace mrpt::poses;
-using namespace mrpt::slam;
+using namespace mrpt::obs;
 using namespace mrpt::gui;
 using namespace mrpt::opengl;
 using namespace mrpt::system;
+using namespace mrpt::io;
 using namespace std;
 
 
@@ -56,8 +64,8 @@ int main(int argc, char **argv)
 	mrpt::gui::CDisplayWindow  win2("Off-screen rendering...");
 
 
-	mrpt::global_settings::OCTREE_RENDER_MAX_POINTS_PER_NODE = 1e7;
-	mrpt::global_settings::OCTREE_RENDER_MAX_DENSITY_POINTS_PER_SQPIXEL = 0.1;
+	// mrpt::global_settings::OCTREE_RENDER_MAX_POINTS_PER_NODE = 1e7;
+	mrpt::global_settings::OCTREE_RENDER_MAX_DENSITY_POINTS_PER_SQPIXEL(0.1);
 
 	try
 	{
@@ -72,27 +80,27 @@ int main(int argc, char **argv)
 
 
 		const string rawlog_file = string(argv[1]);
-		ASSERT_(mrpt::system::fileExists(rawlog_file))
+		ASSERT_(mrpt::system::fileExists(rawlog_file));
 
 		const TTimeStamp start_timestamp =
 			(argc==3) ?
 			mrpt::system::time_tToTimestamp(atof(argv[2])) :
-			TTimeStamp(0);
+			mrpt::system::time_tToTimestamp(0.0);
 
 		if (argc==3)
 			cout << "Using starting timestamp = " << mrpt::system::dateTimeLocalToString(start_timestamp) << endl;
 
 		// External images:
-		CImage::IMAGES_PATH_BASE = CRawlog::detectImagesDirectory(rawlog_file);
+		CImage::setImagesPathBase(CRawlog::detectImagesDirectory(rawlog_file));
 
 		CFileGZInputStream  fil(rawlog_file);
 
 		size_t nEntry = 0;
-		CActionCollectionPtr	acts;
-		CSensoryFramePtr		SF;
-		CObservationPtr			obs;
+        CActionCollection::Ptr	acts;
+        CSensoryFrame::Ptr		SF;
+        CObservation::Ptr			obs;
 
-		typedef std::map<system::TTimeStamp,CObservation2DRangeScanPtr> TMapTime2Lasers;
+		typedef std::map<system::TTimeStamp,CObservation2DRangeScan::Ptr> TMapTime2Lasers;
 
 		CPose3DInterpolator 	vehPath;
 		TMapTime2Lasers			lstLaserScans;
@@ -116,37 +124,37 @@ int main(int argc, char **argv)
 
 		TTimeStamp  first_tim = INVALID_TIMESTAMP;
 		bool waiting_to_first = false;
-		CPose3D *P_prev = NULL;
+		TPose3D *P_prev = NULL;
 
 		// Build 3D point cloud:
-		mrpt::slam::CColouredPointsMap  ptsMap;
+		mrpt::maps::CColouredPointsMap  ptsMap;
 		ptsMap.insertionOptions.isPlanarMap = false;
 		ptsMap.insertionOptions.fuseWithExisting = false;
 		ptsMap.insertionOptions.minDistBetweenLaserPoints = 0.05;
 
 		//ptsMap.colorScheme.scheme = CColouredPointsMap::cmFromHeightRelativeToSensorJet;
-		ptsMap.colorScheme.scheme = CColouredPointsMap::cmFromHeightRelativeToSensorGray;
+		ptsMap.colorScheme.scheme = mrpt::maps::CColouredPointsMap::cmFromHeightRelativeToSensorGray;
 		ptsMap.colorScheme.z_min = -2;
 		ptsMap.colorScheme.z_max = 10;
 
 		// Keep a queue of images pending to be displayed: this will work as
 		//  a delay so we gather enough future GPSs to interpolate the actual vehicle pose:
-		std::queue<CObservationStereoImagesPtr> latest_imgs;
+		std::queue<CObservationStereoImages::Ptr> latest_imgs;
 
-		const size_t TIME_WINDOW_SECS = 5; // secs
-		const size_t N_MIN_IMGS_IN_QUEUE = 20.0 * TIME_WINDOW_SECS; // 20fps * secs
+		const double TIME_WINDOW_SECS = 5; // secs
+		const double N_MIN_IMGS_IN_QUEUE = 20.0 * TIME_WINDOW_SECS; // 20fps * secs
 
 		const int GRID_XY_FREQ = 5;
 
 		// Visualize 3D path:
 
-		opengl::CGridPlaneXYPtr  gl_grid = opengl::CGridPlaneXY::Create(-100,100, -100,100, 0, GRID_XY_FREQ);
-		opengl::CSetOfObjectsPtr gl_pointcloud = opengl::CSetOfObjects::Create();
+		opengl::CGridPlaneXY::Ptr  gl_grid = opengl::CGridPlaneXY::Create(-100,100, -100,100, 0, GRID_XY_FREQ);
+		opengl::CSetOfObjects::Ptr gl_pointcloud = opengl::CSetOfObjects::Create();
 
-		opengl::CSetOfObjectsPtr gl_veh  = opengl::stock_objects::CornerXYZSimple();
+		opengl::CSetOfObjects::Ptr gl_veh  = opengl::stock_objects::CornerXYZSimple();
 
 		// This is the only point where we select which lasers to render in 3D as scans:
-		map<string,opengl::CPlanarLaserScanPtr> gl_laser_scans;
+		map<string,opengl::CPlanarLaserScan::Ptr> gl_laser_scans;
 		gl_laser_scans["HOKUYO2"] = opengl::CPlanarLaserScan::Create();
 		gl_laser_scans["HOKUYO3"] = opengl::CPlanarLaserScan::Create();
 
@@ -160,7 +168,7 @@ int main(int argc, char **argv)
 		gl_laser_scans["HOKUYO3"]->setSurfaceColor(0,0,1,0.3);
 
 		// Add to gl_veh:
-		for (map<string,opengl::CPlanarLaserScanPtr>::iterator it=gl_laser_scans.begin();it!=gl_laser_scans.end();++it)
+		for (map<string,opengl::CPlanarLaserScan::Ptr>::iterator it=gl_laser_scans.begin();it!=gl_laser_scans.end();++it)
 		{
 			gl_veh->insert(it->second);
 		}
@@ -169,7 +177,7 @@ int main(int argc, char **argv)
 
 		opengl::COpenGLScene scene;
 
-		opengl::COpenGLViewportPtr view_im1,view_main, view_map;
+		opengl::COpenGLViewport::Ptr view_im1,view_main, view_map;
 
 		CCamera& camera = fbo.getCamera(scene);
 
@@ -202,7 +210,8 @@ int main(int argc, char **argv)
 			cout << "*** GRABBING VIDEO ***\n";
 		}
 
-		while (CRawlog::getActionObservationPairOrObservation(fil,acts,SF,obs,nEntry) && win2.isOpen() )
+        mrpt::serialization::CArchive::UniquePtr m_rawlog_arch = mrpt::serialization::archiveUniquePtrFrom(fil);
+		while (CRawlog::getActionObservationPairOrObservation(*m_rawlog_arch, acts,SF,obs,nEntry) && win2.isOpen() )
 		{
 			// Process keys for camera:
 			if ( mrpt::system::os::kbhit() )
@@ -244,12 +253,12 @@ int main(int argc, char **argv)
 			}
 
 			// Process GPS entries:
-			if (IS_CLASS(obs,CObservationGPS) && obs->sensorLabel=="GPS_DELUO")
+			if (IS_CLASS(*obs, CObservationGPS) && obs->sensorLabel=="GPS_DELUO")
 			{
-				CObservationGPSPtr o = CObservationGPSPtr(obs);
-				if (o->has_GGA_datum && o->GGA_datum.fix_quality>=1)
+				CObservationGPS::Ptr o = std::dynamic_pointer_cast<CObservationGPS>(obs);
+				if (o->has_GGA_datum() && o->getMsgByClass<gnss::Message_NMEA_GGA>().fields.fix_quality>=1)
 				{
-					topography::TGeodeticCoords  coord = o->GGA_datum.getAsStruct<topography::TGeodeticCoords>();
+					topography::TGeodeticCoords  coord = o->getMsgByClass<gnss::Message_NMEA_GGA>().getAsStruct<topography::TGeodeticCoords>();
 					if (coords_ref.isClear())
 						coords_ref = coord;
 
@@ -261,21 +270,29 @@ int main(int argc, char **argv)
 					// Insert? Only if there is a minimum distance to last one, so we can approximate well the heading:
 					static const double MIN_2D_DIST_TO_ACCEPT = 0.15;
 
-					if ( P_prev==NULL || P_prev->distance2DTo(P.x,P.y) > MIN_2D_DIST_TO_ACCEPT )
+                    bool runInterpolate(false);
+					if ( P_prev==NULL) {
+                        runInterpolate = true;
+                    } else {
+                        CPose3D P_prev_pose(*P_prev);
+                        if (P_prev_pose.distance2DTo(P.x,P.y) > MIN_2D_DIST_TO_ACCEPT )
+                        {
+                            runInterpolate = true;
+                            cout << "distance to last GPS point: " << P_prev_pose.distance2DTo(P.x,P.y) << endl;
+                        }
+                    }
+                    if (runInterpolate)
 					{
-						if (P_prev)
-							cout << "distance to last GPS point: " << P_prev->distance2DTo(P.x,P.y) << endl;
-
 						vehPath.insert(o->timestamp,CPose3D(P.x,P.y,P.z,0,0,0));
 
 						// Now, interpolate between poses and make up the orientation:
 						// Take a reference to the just-inserted pose:
-						CPose3D &P2 = vehPath.rbegin()->second;
+						TPose3D &P2 = vehPath.rbegin()->second;
 						if (P_prev)
 						{
 							// Interpolate orientation of P1:
-							const double yaw = atan2(P2.y()-P_prev->y(), P2.x()-P_prev->x());
-							P_prev->setYawPitchRoll(yaw,0,0);
+							const double yaw = atan2(P2.y-P_prev->y, P2.x-P_prev->x);
+							P_prev->yaw = yaw;
 						}
 						P_prev = &P2; // For next iter:
 					}
@@ -298,10 +315,9 @@ int main(int argc, char **argv)
 				}
 			}
 			else
-			if (IS_CLASS(obs,CObservation2DRangeScan))
+			if (IS_CLASS(*obs,CObservation2DRangeScan))
 			{
-				CObservation2DRangeScanPtr o = CObservation2DRangeScanPtr(obs);
-				o.make_unique();
+				CObservation2DRangeScan::Ptr o = std::dynamic_pointer_cast<CObservation2DRangeScan>(obs);
 				if (o->sensorLabel=="HOKUYO2" ||
 				    o->sensorLabel=="HOKUYO3")
 				{
@@ -320,10 +336,10 @@ int main(int argc, char **argv)
 				lstLaserScansByName[obs->sensorLabel][o->timestamp] = o;
 			}
 			else
-			if (IS_CLASS(obs,CObservationStereoImages))
+			if (IS_CLASS(*obs,CObservationStereoImages))
 			{
-				latest_imgs.push( CObservationStereoImagesPtr(obs) );
-				want_to_refresh_view = latest_imgs.size()>=N_MIN_IMGS_IN_QUEUE;
+				latest_imgs.push( std::dynamic_pointer_cast<CObservationStereoImages>(obs) );
+				want_to_refresh_view = latest_imgs.size()>=(size_t) N_MIN_IMGS_IN_QUEUE;
 			}
 
 
@@ -331,9 +347,9 @@ int main(int argc, char **argv)
 			{
 				// Update the camera image:
 				// ----------------------------------
-				ASSERT_(!latest_imgs.empty())
+				ASSERT_(!latest_imgs.empty());
 
-				CObservationStereoImagesPtr latest_img = latest_imgs.front();
+				CObservationStereoImages::Ptr latest_img = latest_imgs.front();
 				latest_imgs.pop();
 
 				// In order not to load too much the opengl thread, load the JPEG external images in this working thread:
@@ -341,7 +357,7 @@ int main(int argc, char **argv)
 				try {
 					if (latest_img->imageLeft.loadFromFile( latest_img->imageLeft.getExternalStorageFileAbsolutePath() ))
 					{
-						view_im1->setImageView_fast(latest_img->imageLeft);
+						view_im1->setImageView(latest_img->imageLeft);
 						load_ok=true;
 					}
 				}catch(...) {}
@@ -379,22 +395,22 @@ int main(int argc, char **argv)
 					CImage aux;
 					mod_map.extract_patch(aux,px1.x,px1.y,px2.x-px1.x+1,px2.y-px1.y+1);
 
-					view_map->setImageView_fast(aux);
+					view_map->setImageView(aux);
 				}
 
 
 				// Update text labels:
 				// ----------------------------------
-				fbo.addTextMessage(0.42,-13,string("Time: ")+mrpt::system::dateTimeLocalToString(latest_img->timestamp), TColorf(1,1,1), 0,  MRPT_GLUT_BITMAP_HELVETICA_12 );
-				fbo.addTextMessage(0.42,-28,format("Timestamp: %f",mrpt::system::timestampToDouble(latest_img->timestamp)), TColorf(1,1,1), 1,  MRPT_GLUT_BITMAP_HELVETICA_12 );
+				// fbo.addTextMessage(0.42,-13,string("Time: ")+mrpt::system::dateTimeLocalToString(latest_img->timestamp), TColorf(1,1,1), 0,  MRPT_GLUT_BITMAP_HELVETICA_12 );
+				// fbo.addTextMessage(0.42,-28,format("Timestamp: %f",mrpt::system::timestampToDouble(latest_img->timestamp)), TColorf(1,1,1), 1,  MRPT_GLUT_BITMAP_HELVETICA_12 );
 
-				fbo.addTextMessage(2,2,string("Lat: ")+last_coords.lat.getAsString(), TColorf(1,1,0), 2,  MRPT_GLUT_BITMAP_HELVETICA_12 );
-				fbo.addTextMessage(2,2+17,string("Lon: ")+last_coords.lon.getAsString(), TColorf(1,1,0), 3,  MRPT_GLUT_BITMAP_HELVETICA_12 );
+				// fbo.addTextMessage(2,2,string("Lat: ")+last_coords.lat.getAsString(), TColorf(1,1,0), 2,  MRPT_GLUT_BITMAP_HELVETICA_12 );
+				// fbo.addTextMessage(2,2+17,string("Lon: ")+last_coords.lon.getAsString(), TColorf(1,1,0), 3,  MRPT_GLUT_BITMAP_HELVETICA_12 );
 
 
 				// Update laser scans:
 				// --------------------------------
-				for (map<string,opengl::CPlanarLaserScanPtr>::iterator it=gl_laser_scans.begin();it!=gl_laser_scans.end();++it)
+				for (map<string,opengl::CPlanarLaserScan::Ptr>::iterator it=gl_laser_scans.begin();it!=gl_laser_scans.end();++it)
 				{
 					TMapTime2Lasers &mt2l = lstLaserScansByName[it->first];
 
@@ -433,7 +449,9 @@ int main(int argc, char **argv)
 					// ----------------------------
 
 					// Delete from master map:
-					const mrpt::system::TTimeStamp old_tim = latest_img->timestamp - mrpt::system::secondsToTimestamp(TIME_WINDOW_SECS);
+                    auto diff = latest_img->timestamp - mrpt::system::time_tToTimestamp(TIME_WINDOW_SECS);
+                    
+					const mrpt::system::TTimeStamp old_tim = mrpt::system::time_tToTimestamp(std::chrono::duration<double>(diff).count());
 
 					lstLaserScans.erase(
 						lstLaserScans.begin(),
@@ -492,7 +510,6 @@ int main(int argc, char **argv)
 		cout << "\nAll done, close the window to quit.\n";
 
 		win2.waitForKey();
-
 		return 0;
 	} catch (exception &e)
 	{

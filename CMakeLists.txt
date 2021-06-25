@@ -13,7 +13,7 @@ endif(COMMAND cmake_policy)
 #   The dependencies of a library are automatically added, so you only
 #    need to specify the top-most libraries your code depend on.
 # --------------------------------------------------------------------------
-FIND_PACKAGE( MRPT REQUIRED base obs maps topography gui)
+FIND_PACKAGE( MRPT REQUIRED core obs maps topography gui)
 
 ADD_DEFINITIONS(-DMY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
