@@ -11,6 +11,7 @@
    | Released under BSD License. See: https://www.mrpt.org/License          |
    +------------------------------------------------------------------------+ */
 
+#define MRPT_NO_WARN_BIG_HDR  // allow "large" includes without warning about it
 #include <mrpt/gui.h>
 #include <mrpt/img/TPixelCoord.h>
 #include <mrpt/io/CFileGZInputStream.h>
@@ -86,8 +87,8 @@ int main(int argc, char** argv)
         CSensoryFrame::Ptr     SF;
         CObservation::Ptr      obs;
 
-        typedef std::map<system::TTimeStamp, CObservation2DRangeScan::Ptr>
-            TMapTime2Lasers;
+        using TMapTime2Lasers =
+            std::map<system::TTimeStamp, CObservation2DRangeScan::Ptr>;
 
         CPose3DInterpolator                    vehPath;
         TMapTime2Lasers                        lstLaserScans;
@@ -430,12 +431,17 @@ int main(int argc, char** argv)
 
                 // Update text labels:
                 // ----------------------------------
-                // fbo.addTextMessage(0.42,-13,string("Time:
-                // ")+mrpt::system::dateTimeLocalToString(latest_img->timestamp),
-                // TColorf(1,1,1), 0,  MRPT_GLUT_BITMAP_HELVETICA_12 );
-                // fbo.addTextMessage(0.42,-28,format("Timestamp:
-                // %f",mrpt::system::timestampToDouble(latest_img->timestamp)),
-                // TColorf(1,1,1), 1,  MRPT_GLUT_BITMAP_HELVETICA_12 );
+                mrpt::opengl::TFontParams fp;
+
+                scene.getViewport()->addTextMessage(
+                    0.42, -13,
+                    std::string("Time: ") + mrpt::system::dateTimeLocalToString(
+                                                latest_img->timestamp),
+                    0 /*id*/, fp);
+
+                //                 fbo.addTextMessage(0.42,-28,format("Timestamp:
+                //%f",mrpt::system::timestampToDouble(latest_img->timestamp)),
+                // TColorf(1, 1, 1), 1, MRPT_GLUT_BITMAP_HELVETICA_12);
 
                 // fbo.addTextMessage(2,2,string("Lat:
                 // ")+last_coords.lat.getAsString(), TColorf(1,1,0), 2,
