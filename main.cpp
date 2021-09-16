@@ -46,8 +46,8 @@ int main(int argc, char** argv)
 {
     // CDisplayWindow3D  win("Data set preview",608,544);  // size multiple of
     // 16 to easy video codecs.
-    const int                 IM_W = 640;  // 608;
-    const int                 IM_H = 480;  // 544;
+    const int                 IM_W = 800;  // 608;
+    const int                 IM_H = 600;  // 544;
     mrpt::opengl::CFBORender  fbo(IM_W, IM_H);
     mrpt::gui::CDisplayWindow win2("Off-screen rendering...");
 
@@ -372,25 +372,10 @@ int main(int argc, char** argv)
 
                 // In order not to load too much the opengl thread, load the
                 // JPEG external images in this working thread:
-                bool load_ok = false;
-                try
-                {
-                    if (latest_img->imageLeft.loadFromFile(
-                            latest_img->imageLeft
-                                .getExternalStorageFileAbsolutePath()))
-                    {
-                        view_im1->setImageView(latest_img->imageLeft);
-                        load_ok = true;
-                    }
-                }
-                catch (...)
-                {
-                }
+                latest_img->load();
+                view_im1->setImageView(latest_img->imageLeft);
 
-                if (!load_ok)
-                    cerr << "**WARNING**: Image seem damaged: "
-                         << latest_img->imageLeft.getExternalStorageFile()
-                         << endl;
+                latest_img->unload();  // Free RAM
 
                 // Put malaga map image:
                 {
@@ -402,7 +387,7 @@ int main(int argc, char** argv)
                         org_map.loadFromFile(MY_SOURCE_DIR "/malaga_sat.png");
                     }
 
-                    CImage mod_map = org_map;
+                    CImage mod_map = org_map.makeDeepCopy();
 
                     TPixelCoordf px;
                     gps_coords2map_px(last_coords, px);
