@@ -419,34 +419,27 @@ int main(int argc, char** argv)
                 mrpt::opengl::TFontParams fp;
 
                 scene.getViewport()->addTextMessage(
-                    0.42, -13,
+                    5, 5,
                     std::string("Time: ") + mrpt::system::dateTimeLocalToString(
                                                 latest_img->timestamp),
                     0 /*id*/, fp);
 
-                //                 fbo.addTextMessage(0.42,-28,format("Timestamp:
-                //%f",mrpt::system::timestampToDouble(latest_img->timestamp)),
-                // TColorf(1, 1, 1), 1, MRPT_GLUT_BITMAP_HELVETICA_12);
-
-                // fbo.addTextMessage(2,2,string("Lat:
-                // ")+last_coords.lat.getAsString(), TColorf(1,1,0), 2,
-                // MRPT_GLUT_BITMAP_HELVETICA_12 );
-                // fbo.addTextMessage(2,2+17,string("Lon:
-                // ")+last_coords.lon.getAsString(), TColorf(1,1,0), 3,
-                // MRPT_GLUT_BITMAP_HELVETICA_12 );
+                // ... last_coords.lat.getAsString()
 
                 // Update laser scans:
                 // --------------------------------
-                for (map<string, opengl::CPlanarLaserScan::Ptr>::iterator it =
-                         gl_laser_scans.begin();
-                     it != gl_laser_scans.end(); ++it)
+                for (const auto& label2lidarGL : gl_laser_scans)
                 {
-                    TMapTime2Lasers& mt2l = lstLaserScansByName[it->first];
+                    TMapTime2Lasers& mt2l =
+                        lstLaserScansByName[label2lidarGL.first];
 
-                    TMapTime2Lasers::iterator itL =
-                        mt2l.lower_bound(latest_img->timestamp);
-
-                    if (itL != mt2l.end()) it->second->setScan(*itL->second);
+                    if (TMapTime2Lasers::iterator itL =
+                            mt2l.lower_bound(latest_img->timestamp);
+                        itL != mt2l.end())
+                    {
+                        // Update lidar visualization:
+                        label2lidarGL.second->setScan(*itL->second);
+                    }
                 }
 
                 // Update the 3D point cloud:
@@ -466,11 +459,10 @@ int main(int argc, char** argv)
                         vehPath.interpolate(it->first, P, valid);
                         if (!valid) continue;
 
-                        ptsMap.insertObservationPtr(it->second, &P);
+                        ptsMap.insertObservationPtr(it->second, P);
                     }
 
-                    gl_pointcloud->clear();
-                    ptsMap.getAs3DObject(gl_pointcloud);
+                    ptsMap.getVisualizationInto(*gl_pointcloud);
                     ptsMap.clear();  // Free memory.
 
                     // Delete old scans:
@@ -531,11 +523,15 @@ int main(int argc, char** argv)
 
                 // Render image:
                 CImage render_im;
-                fbo.getFrame(scene, render_im);
+                fbo.render_RGB(scene, render_im);
+
                 win2.showImage(render_im);
 
                 if (GRAB_VIDEO)
-                { render_im.saveToFile(format(img_filenames, img_idx++)); }
+                {
+                    // scene.saveToFile(format("scene_%04i.3Dscene", img_idx));
+                    render_im.saveToFile(format(img_filenames, img_idx++));
+                }
             }
 
         };  // end while
