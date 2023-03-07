@@ -25,3 +25,9 @@ cd build
 cmake ..
 make
 ```
+
+
+
+```
+project-lidar-into-image/project-lidar-into-image /mnt/storage/malaga-urban-dataset/malaga-urban-dataset-extract-13/malaga-urban-dataset-extract-13_rectified_800x600.rawlog
+```
